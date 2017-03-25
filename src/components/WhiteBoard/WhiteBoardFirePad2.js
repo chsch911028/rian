@@ -43,7 +43,8 @@ class WhiteBoardFirePad extends React.Component{
     // { isBlocking : true(이미선택됨)/false(선택가능), nowWriter : 'dev' , writer : { 'chan' : true, 'dev': true }  }
 
     this.takenLines = {};
-    this.projectId = 1;
+    //this.projectId = 1;
+    this.projectId = 2;
     this.userId = this.props.user.username || this.props.user.facebook.id;
 
     //this.firepadRef = firebase.database().ref('chan/whiteboard/'+projectId);
@@ -52,6 +53,8 @@ class WhiteBoardFirePad extends React.Component{
     this.firepad = {}
     this.firepadUserList = {}
     
+    this.haveToUndo = false;
+
     //method
     this.tooltipShowAndHide.bind(this);    
   }
@@ -63,7 +66,7 @@ class WhiteBoardFirePad extends React.Component{
     wbfp.codeMirror = CodeMirror(document.getElementById('firepad'), { 
       gutters: ["codemirror-username"],
       lineWrapping: true,
-      
+      lineNumbers: true,
     });
     
     wbfp.firepad = Firepad.fromCodeMirror(wbfp.firepadRef, wbfp.codeMirror, {
@@ -73,8 +76,8 @@ class WhiteBoardFirePad extends React.Component{
                      //defaultText: 'Hello, World!'
                    });
     
-    // about userList View    
-    //wbfp.firepadUserList = FirepadUserList.fromDiv(wbfp.firepadRef.child('users'), document.getElementById('userlist'), wbfp.userId, wbfp.userId);
+    // about userList View
+    // wbfp.firepadUserList = FirepadUserList.fromDiv(wbfp.firepadRef.child('users'), document.getElementById('userlist'), wbfp.userId, wbfp.userId);
 
     // 처음 firebase에 lines 라는 property가 없으면 default로 생성해주기
     wbfp.firepadRef.child('lines').once('value', function(snapshot){
@@ -186,21 +189,25 @@ class WhiteBoardFirePad extends React.Component{
         //2. userInfo에서 해당 라인이 blockingLine이 아니고 lineInfo에서 해당 라인이 blocking 되어있으면 커서 이동못하게 방지
         if(wbfp.userInfo[wbfp.userId].blockingLine !== clickedLine &&
            wbfp.lineInfo[clickedLine] && wbfp.lineInfo[clickedLine].isBlocking){
-          e.preventDefault();
+           e.preventDefault();
         }
+
         //3. richbox tooltip이 show상태이면 hide시키기
         if(wbfp.state.richboxDisplay){
           wbfp.tooltipShowAndHide(null, false);
         }
+
       });
 
+      //input에 대한것은 처리하지않음
       wbfp.codeMirror.on('keyHandled', function(cm, name, e){
-
+        
         var nowLine = cm.getCursor().line;
 
-        //Left, Right, Up, Down
+        // Left, Right, Up, Down
+        // wbfp.lineInfo[nowLine] 이 존재하는 경우에만 체크함
         // wbfp.userInfo[wbfp.userId].blockingLine !== nowLine 블락킹 라인이 자기 라인인 경우는 체크 안함!
-        if(wbfp.userInfo[wbfp.userId].blockingLine !== nowLine){
+        if(!!wbfp.lineInfo[nowLine] && wbfp.userInfo[wbfp.userId].blockingLine !== nowLine){
           if(name === "Left"){
             if(wbfp.lineInfo[nowLine].isBlocking){ cm.execCommand('goLineUp'); }
           }else if(name === "Right"){
@@ -243,65 +250,95 @@ lineInfo를 만들기 위해서
 inputRead가 실행될때 => firebase에
 
 */
+      // 나에게도 발생하고 상대방에게 발생함
 
 
+      wbfp.codeMirror.on('change', function(cm, changeObj){
+
+      });
+
+      wbfp.codeMirror.on('changes', function(cm, changes){
+
+        if(wbfp.haveToUndo){
+          cm.undo();
+          wbfp.hideCursor(cm);
+          wbfp.haveToUndo = false;
+        }
+      });
+
+      //나에게만 발생하는 event
       //blocking을 설정하는 set/update는 inputRead event에서 실행한다.
       //blocking을 해제하는 set/update는 cursorActivity, blur event 에서 실행한다.
       wbfp.codeMirror.on('inputRead', function(cm, changeObj){
-
+        
         var nowLine = cm.getCursor().line;
         var nowText = changeObj.text;
         var lineInfo = wbfp.lineInfo[nowLine];
         
-        // 1. lineInfo에서 먼저 현재 라인에 대해서 비교한 후에 lineInfo의 firebase update를 할지말지 결정함
-        if(lineInfo.nowWriter !== wbfp.userId && !lineInfo.isBlocking){ // blocking 안되있는 경우 firebase lineInfo 정보 업데이트 실행
-          
-          // writerInfo update
-          var writerInfo = wbfp.lineInfo[nowLine].writer;
-          if(!writerInfo){
-            writerInfo = { };
-            writerInfo[wbfp.userId] = true;
-          }else{
-            writerInfo[wbfp.userId] = true;
-          }
+        // 0. lineInfo가 존재하지 않으면
+        if(!lineInfo){ // lineInfo, userInfo update
 
-          // 단, 내가 변경하려할때 이미 누군가 변경하고 있을 수 있으므로 transaction을 사용해서 변경
-          wbfp.firepadRef.child('lines').child(nowLine).transaction(
+          var writerInfo = {}
+              writerInfo[wbfp.userId] = true;
 
-          function(ingLineInfo){ // transaction으로 처리할 경우 먼저 들어온 정보가 있을때 그것을 넘겨주는것이고, 그런것이 없으면 null값을 넘겨줌!!
-            //ingLineInfo가 없거나 ingLineInfo.isBlocking이 false이면 실행
-            if(!ingLineInfo || !ingLineInfo.isBlocking){
-              //firebase에 정보 update하기
-              return { isBlocking : true, nowWriter : wbfp.userId, writer : writerInfo };
+          wbfp.firepadRef.child('lines').child(nowLine).set({ isBlocking : true, nowWriter : wbfp.userId, writer : writerInfo });
+          wbfp.firepadRef.child('users').child(wbfp.userId).update({ 'blockingLine' : nowLine });
 
-            }else{ // lines->nowLine->ingLineInfo가 있다는것은 누군가 해당 라인을 건드리고 있다는 것이기 때문에 지금 수정을 불가능하게 처리해야함
-              
-              console.log('someone is updating ' + nowLine + '-line info // ingLineInfo ::: ', ingLineInfo);
-              //그리고는 현재 커서를 새로운 line을 만들어서 보내주기
-              cm.execCommand('newlineAndIndent'); // blur 해주는 방법 찾으면 그걸로 변경해줄것!
-              return;
-            }
-
-          },function(error, committed, snapshot) { //lineInfo 업데이트가 성공적으로 되면 userInfo는 즉각 update
-            //snapshot.val(); // 현재 값
-            if (error) {
-              console.log('Transaction failed abnormally!', error);
-            } else if (!committed) {
-              console.log('We aborted the transaction (because ada already exists).');
-            } else {
-              console.log('success update');
-              //user 정보 업데이트
-              wbfp.firepadRef.child('users').child(wbfp.userId).update({ 'blockingLine' : nowLine });    
-            }
+        }else{ //lineInfo가 존재하면
+          // 1. lineInfo에서 먼저 현재 라인에 대해서 비교한 후에 lineInfo의 firebase update를 할지말지 결정함
+          if(lineInfo.nowWriter !== wbfp.userId && !lineInfo.isBlocking){ // blocking 안되있는 경우 firebase lineInfo 정보 업데이트 실행
             
-          }); // lines transaction end
+            // writerInfo update
+            var writerInfo = wbfp.lineInfo[nowLine].writer;
+            if(!writerInfo){
+              writerInfo = { };
+              writerInfo[wbfp.userId] = true;
+            }else{
+              writerInfo[wbfp.userId] = true;
+            }
 
-        }else if(lineInfo.nowWriter === wbfp.userId){ // blocking되어있는곳이 내가 쓰고 있는 경우!
+            // 단, 내가 변경하려할때 이미 누군가 변경하고 있을 수 있으므로 transaction을 사용해서 변경
+            wbfp.firepadRef.child('lines').child(nowLine).transaction(
 
-        }else{ // blocking 되어 있는 경우
-          
-          cm.execCommand('newlineAndIndent'); // blur 해주는 방법 찾으면 그걸로 변경해줄것!  
-        }
+            function(ingLineInfo){ // transaction으로 처리할 경우 먼저 들어온 정보가 있을때 그것을 넘겨주는것이고, 그런것이 없으면 null값을 넘겨줌!!
+              //ingLineInfo가 없거나 ingLineInfo.isBlocking이 false이면 실행
+              if(!ingLineInfo || !ingLineInfo.isBlocking){
+                //firebase에 정보 update하기
+                return { isBlocking : true, nowWriter : wbfp.userId, writer : writerInfo };
+
+              }else{ // lines->nowLine->ingLineInfo가 있다는것은 누군가 해당 라인을 건드리고 있다는 것이기 때문에 지금 수정을 불가능하게 처리해야함
+                
+                console.log('someone is updating ' + nowLine + '-line info // ingLineInfo ::: ', ingLineInfo);
+                //그리고는 현재 커서 제거하기
+                wbfp.haveToUndo = true;
+                // wbfp.hideCursor(cm);
+                return;
+              }
+
+            },function(error, committed, snapshot) { //lineInfo 업데이트가 성공적으로 되면 userInfo는 즉각 update
+              //snapshot.val(); // 현재 값
+              if (error) {
+                console.log('Transaction failed abnormally!', error);
+              } else if (!committed) {
+                console.log('We aborted the transaction (because ada already exists).');
+              } else {
+                console.log('success update');
+                //user 정보 업데이트
+                wbfp.firepadRef.child('users').child(wbfp.userId).update({ 'blockingLine' : nowLine });    
+              }
+              
+            }); // lines transaction end
+
+          }else if(lineInfo.nowWriter === wbfp.userId){ // blocking되어있는곳이 내가 쓰고 있는 경우!
+
+          }else{ // blocking 되어 있는 경우
+            wbfp.haveToUndo = true;
+            // wbfp.hideCursor(cm);
+            //cm.execCommand('newlineAndIndent'); // blur 해주는 방법 찾으면 그걸로 변경해줄것!  
+          }          
+        } 
+
+
 
       });
 
@@ -329,38 +366,38 @@ inputRead가 실행될때 => firebase에
       //blocking을 설정하는 set/update는 inputRead event에서 실행한다.
       wbfp.codeMirror.on('blur', function(cm, e){
 
-        //if 현재 사용자가 blocking하던 라인이 존재한다면
-        if(Number.isInteger(wbfp.userInfo[wbfp.userId].blockingLine)){
-          // 해제가 먼저 실행되야하므로 update로 바로 실행
-          var blockingLine = wbfp.userInfo[wbfp.userId].blockingLine;
-          wbfp.firepadRef.child('lines').child(blockingLine).update({ isBlocking : false, nowWriter: false }); 
-          wbfp.firepadRef.child('users').child(wbfp.userId).update({ 'blockingLine' : false });
-        }        
+        // //if 현재 사용자가 blocking하던 라인이 존재한다면
+        // if(Number.isInteger(wbfp.userInfo[wbfp.userId].blockingLine)){
+        //   // 해제가 먼저 실행되야하므로 update로 바로 실행
+        //   var blockingLine = wbfp.userInfo[wbfp.userId].blockingLine;
+        //   wbfp.firepadRef.child('lines').child(blockingLine).update({ isBlocking : false, nowWriter: false }); 
+        //   wbfp.firepadRef.child('users').child(wbfp.userId).update({ 'blockingLine' : false });
+        // }        
 
       });
 
       // renderLine event는 커서 이동에는 영향받지 않는다.
       // 하지만 글자 입력이나 line 생성/삭제에는 자동 발생되는 event이다
-      wbfp.codeMirror.on('renderLine', function(cm, line, el){
+      // wbfp.codeMirror.on('renderLine', function(cm, line, el){
         
-        var nowLine = cm.getCursor().line;
-        console.log('renderLine ::: ', nowLine, line);
+      //   var nowLine = cm.getCursor().line;
+      //   console.log('renderLine ::: ', nowLine, line);
 
-        if(!wbfp.lineInfo[nowLine]){ //nowLine에 대한 정보가 lineInfo에 없다면 firebase에 init 값을 update해줌
-          wbfp.firepadRef.child('lines').child(nowLine).set({ isBlocking : false, nowWriter: false, writer : false });
-        }
+      //   if(!wbfp.lineInfo[nowLine]){ //nowLine에 대한 정보가 lineInfo에 없다면 firebase에 init 값을 update해줌
+      //     wbfp.firepadRef.child('lines').child(nowLine).set({ isBlocking : false, nowWriter: false, writer : false });
+      //   }
 
-        // line render되는 line에 event를 걸어줌
-        line.on('delete', function(){
-          wbfp.firepadRef.child('lines').child(this).set({ isBlocking : false, nowWriter: false, writer : false });
-        }.bind(nowLine));
+      //   // line render되는 line에 event를 걸어줌
+      //   // line.on('delete', function(){
+      //   //   wbfp.firepadRef.child('lines').child(this).set({ isBlocking : false, nowWriter: false, writer : false });
+      //   // }.bind(nowLine));
 
-      });
+      // });
       
       wbfp.codeMirror.on('change', function(doc, changeObj){
         
         if(changeObj.origin === '+delete' && changeObj.to.line !== changeObj.from.line){
-          debugger;
+
         }
         
       });
@@ -448,6 +485,25 @@ inputRead가 실행될때 => firebase에
 
   }
   
+  //hide cursor
+  hideCursor(cm){
+    if (cm.state.focused) {
+      cm.state.focused = false;
+      cm.display.wrapper.classList.remove('CodeMirror-focused');
+    }
+  
+    // Extracted from onBlur Function in codemirror.js
+    // if (cm.state.delayingBlurEvent) return;
+
+    // if (cm.state.focused) {
+    //   signal(cm, "blur", cm);
+    //   cm.state.focused = false;
+    //   rmClass(cm.display.wrapper, "CodeMirror-focused");
+    // }
+    // clearInterval(cm.display.blinker);
+    // setTimeout(function() {if (!cm.state.focused) cm.display.shift = false;}, 150);    
+  }
+
   // Make Gutter Marker element
   makeMarker(name) {
     var marker = document.createElement("div");

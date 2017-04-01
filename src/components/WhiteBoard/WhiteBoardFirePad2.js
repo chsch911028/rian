@@ -10,7 +10,7 @@ import RichBox from './RichBox';
 // CSS IMPORT
 import '../../styles/Firepad.css';
 import '../../styles/CodeMirror.css';
-
+s
 
 // var config = {
 //     apiKey: "AIzaSyBX3jBV3-jGNqLwhSznY864MfPlp5H89Tw",
@@ -44,7 +44,7 @@ class WhiteBoardFirePad extends React.Component{
 
     this.takenLines = {};
     //this.projectId = 1;
-    this.projectId = 2;
+    this.projectId = 3;
     this.userId = this.props.user.username || this.props.user.facebook.id;
 
     //this.firepadRef = firebase.database().ref('chan/whiteboard/'+projectId);
@@ -52,8 +52,6 @@ class WhiteBoardFirePad extends React.Component{
     this.codeMirror = {}
     this.firepad = {}
     this.firepadUserList = {}
-    
-    this.haveToUndo = false;
 
     //method
     this.tooltipShowAndHide.bind(this);    
@@ -199,44 +197,6 @@ class WhiteBoardFirePad extends React.Component{
 
       });
 
-      //input에 대한것은 처리하지않음
-      wbfp.codeMirror.on('keyHandled', function(cm, name, e){
-        
-        var nowLine = cm.getCursor().line;
-
-        // Left, Right, Up, Down
-        // wbfp.lineInfo[nowLine] 이 존재하는 경우에만 체크함
-        // wbfp.userInfo[wbfp.userId].blockingLine !== nowLine 블락킹 라인이 자기 라인인 경우는 체크 안함!
-        if(!!wbfp.lineInfo[nowLine] && wbfp.userInfo[wbfp.userId].blockingLine !== nowLine){
-          if(name === "Left"){
-            if(wbfp.lineInfo[nowLine].isBlocking){ cm.execCommand('goLineUp'); }
-          }else if(name === "Right"){
-            if(wbfp.lineInfo[nowLine].isBlocking){ cm.execCommand('goLineDown'); }
-          }else if(name === "Up"){
-            if(wbfp.lineInfo[nowLine].isBlocking){ cm.execCommand('goLineUp'); }
-          }else if(name === "Down"){
-            if(wbfp.lineInfo[nowLine].isBlocking){ cm.execCommand('goLineDown'); }
-          }
-
-          //Cmd + Left, Right, Up, Down
-          else if(name === "Cmd-Left"){
-            if(wbfp.lineInfo[nowLine].isBlocking){ cm.execCommand('goLineUp'); } 
-          }else if(name === "Cmd-Right"){
-            if(wbfp.lineInfo[nowLine].isBlocking){ cm.execCommand('goLineDown'); } 
-          }else if(name === "Cmd-Up"){
-            if(wbfp.lineInfo[nowLine].isBlocking){ cm.execCommand('goLineDown'); }
-          }else if(name === "Cmd-Down"){
-            if(wbfp.lineInfo[nowLine].isBlocking){ cm.execCommand('goLineUp'); }
-          }
-        }
-        
-        //2. richbox tooltip이 show상태이면 hide시키기
-        if(wbfp.state.richboxDisplay){
-          wbfp.tooltipShowAndHide(null, false);
-        }        
-        
-      });
-
 /*
 
 1) 두명이서 동시에 같은곳에 커서가 위치할 수 있는지 => 같이 위치할 수 있음
@@ -250,21 +210,7 @@ lineInfo를 만들기 위해서
 inputRead가 실행될때 => firebase에
 
 */
-      // 나에게도 발생하고 상대방에게 발생함
 
-
-      wbfp.codeMirror.on('change', function(cm, changeObj){
-
-      });
-
-      wbfp.codeMirror.on('changes', function(cm, changes){
-
-        if(wbfp.haveToUndo){
-          cm.undo();
-          wbfp.hideCursor(cm);
-          wbfp.haveToUndo = false;
-        }
-      });
 
       //나에게만 발생하는 event
       //blocking을 설정하는 set/update는 inputRead event에서 실행한다.
@@ -310,8 +256,7 @@ inputRead가 실행될때 => firebase에
                 
                 console.log('someone is updating ' + nowLine + '-line info // ingLineInfo ::: ', ingLineInfo);
                 //그리고는 현재 커서 제거하기
-                wbfp.haveToUndo = true;
-                // wbfp.hideCursor(cm);
+                wbfp.hideCursor(cm);
                 return;
               }
 
@@ -332,13 +277,10 @@ inputRead가 실행될때 => firebase에
           }else if(lineInfo.nowWriter === wbfp.userId){ // blocking되어있는곳이 내가 쓰고 있는 경우!
 
           }else{ // blocking 되어 있는 경우
-            wbfp.haveToUndo = true;
-            // wbfp.hideCursor(cm);
+            wbfp.hideCursor(cm);
             //cm.execCommand('newlineAndIndent'); // blur 해주는 방법 찾으면 그걸로 변경해줄것!  
           }          
         } 
-
-
 
       });
 
@@ -394,13 +336,6 @@ inputRead가 실행될때 => firebase에
 
       // });
       
-      wbfp.codeMirror.on('change', function(doc, changeObj){
-        
-        if(changeObj.origin === '+delete' && changeObj.to.line !== changeObj.from.line){
-
-        }
-        
-      });
 
       /* 
         #########################################
@@ -491,7 +426,6 @@ inputRead가 실행될때 => firebase에
       cm.state.focused = false;
       cm.display.wrapper.classList.remove('CodeMirror-focused');
     }
-  
     // Extracted from onBlur Function in codemirror.js
     // if (cm.state.delayingBlurEvent) return;
 
